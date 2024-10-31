@@ -148,7 +148,7 @@ function handleCashRegisterKeypress(key)
                 -- Shift remaining customers forward in line
                 local startX = marketplace.x - customerWidth - 50
                 for j, customer in ipairs(customers) do
-                    customer.x = startX - (j - 1) * (customerWidth + 20)
+                    customer.x = startX - (j - 1) * (customerWidth + 30)
                 end
 
                 -- Clear the current customer reference

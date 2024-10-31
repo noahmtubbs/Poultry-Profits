@@ -313,7 +313,7 @@ function isInPickupRange(a, b)
     local bCenterX = b.x + (b.width or b.size) / 2
     local bCenterY = b.y + (b.height or b.size) / 2
     local distance = math.sqrt((aCenterX - bCenterX)^2 + (aCenterY - bCenterY)^2)
-    local range = ((a.width or a.size) + (b.width or b.size)) / 2 + 50
+    local range = ((a.width or a.size) + (b.width or b.size)) / 2 + 10
     return distance <= range
 end
 
@@ -346,7 +346,7 @@ function spawnCustomersAtMarket()
     for i = 1, maxCustomers do
         local need = math.random(2, 10)
         local customer = {
-            x = startX - (i - 1) * (customerWidth + 20),
+            x = startX - (i - 1) * (customerWidth + 30),
             y = startY,
             width = customerWidth,
             height = customerHeight,
@@ -400,6 +400,7 @@ function displayGlobalInfo()
             love.graphics.print("Progress: " .. money .. "/" .. target .. " KSH", 20, yOffset)
         elseif quest.description:find("Level") then
             local target = tonumber(quest.description:match("%d+"))
+            yOffset = yOffset + 20
             love.graphics.print("Progress: Level " .. player.level .. "/" .. target, 20, yOffset)
         end
     else
@@ -1036,7 +1037,7 @@ function drawMarket()
         love.graphics.setColor(0, 0, 0)
         love.graphics.setFont(hudFont)
         love.graphics.print(customer.needs .. " eggs", customer.x - 10, customer.y - 20)
-        love.graphics.print("Time: " .. math.floor(customerTimers[i]), customer.x - 10, customer.y - 35)
+        love.graphics.print("T: " .. math.floor(customerTimers[i]), customer.x - 10, customer.y - 35)
     end
 end
 
@@ -1134,6 +1135,7 @@ function love.mousepressed(x, y, button)
         end
     end
 end
+
 
 -- Handle player actions with spacebar
 function handleSpacebarAction()

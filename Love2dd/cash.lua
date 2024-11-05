@@ -220,4 +220,3 @@ return {
     handleCashRegisterKeypress = handleCashRegisterKeypress,
     handleCashRegisterMouse = handleCashRegisterMouse
 }
-

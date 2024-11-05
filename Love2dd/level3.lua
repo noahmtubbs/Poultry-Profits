@@ -1,17 +1,22 @@
 -- level3.lua
 
 return {
+    -- Chickens are present and more are added
     chickens = {
-        {x = 550, y = 320},
-        {x = 700, y = 280},
-        {x = 750, y = 360},
-        {x = 800, y = 420},
-        {x = 850, y = 480},
-        {x = 900, y = 500} -- 新增的鸡
+        {x = 500, y = 300},
+        {x = 650, y = 250},
+        {x = 700, y = 350},
+        {x = 800, y = 400},
+        {x = 850, y = 450} -- New chicken
     },
-    initialMoney = 200,
-    weather = 'stormy',
+    -- Initial Money
+    initialMoney = 1400,
+    -- Initial Weather (Winter is active)
+    weather = 'winter',
+    -- Level Objective
     objective = function()
-        return money >= 2000
-    end
+        return money >= 99999 -- Adjust as needed for Level 3
+    end,
+    -- Predators are active in Level 3
+    predatorsActive = true
 }

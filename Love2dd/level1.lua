@@ -1,19 +1,22 @@
 -- level1.lua
 
 return {
-    -- 鸡的初始位置
+    -- Chickens are present but no predators will attack
     chickens = {
-        {x = 600, y = 400},
-        {x = 800, y = 200},
-        {x = 700, y = 300},
-        {x = 750, y = 450}
+        {x = 500, y = 300},
+        {x = 650, y = 250},
+        {x = 700, y = 350},
+        {x = 800, y = 400},
+        {x = 850, y = 450}
     },
-    -- 初始金钱
+    -- Initial Money
     initialMoney = 0,
-    -- 初始天气
-    weather = 'sunny',
-    -- 关卡目标
+    -- Initial Weather (No winter)
+    weather = 'sunny', -- Options: 'sunny', 'rainy', 'stormy'
+    -- Level Objective
     objective = function()
         return money >= 400
-    end
+    end,
+    -- Predators are not active in Level 1
+    predatorsActive = false
 }

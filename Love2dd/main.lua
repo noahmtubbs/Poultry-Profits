@@ -1,8 +1,9 @@
 -- main.lua
 
 local cash = require("cash")
+local gameFeatures = require("gameFeatures")
 
--- Remove 'local' to make these variables global
+-- Define global variables and objects
 shop = {
     x = 200,
     y = 500,
@@ -25,17 +26,15 @@ player = {
     maxCapacity = 10,
     maxFeedCapacity = 20,
     level = 1,
-    experience = 0,
-    experienceToLevelUp = 100,
     abilities = {},
     quests = {},
     hasEggMagnet = false, -- New ability
     hasFarmhand = false,  -- New ability
     hasGuardDog = false,  -- New ability
-    inventory = {}        -- For inventory system
+    inventory = {}        -- For inventory system (hidden)
 }
 
--- Chickens
+-- Initialize Chickens
 Chicken = {}
 Chicken.__index = Chicken
 
@@ -56,7 +55,7 @@ function Chicken:new(x, y)
     return chicken
 end
 
-function Chicken:update(dt)
+function Chicken:update(dt, weather, isNight)
     -- At night, chickens sleep
     if isNight then
         self.isSleeping = true
@@ -66,7 +65,11 @@ function Chicken:update(dt)
 
     if not self.isSleeping then
         -- Decrease hunger over time
-        self.hunger = math.max(0, self.hunger - dt * 0.5)
+        local hungerRate = 0.5
+        if weather == 'winter' then
+            hungerRate = hungerRate + 0.3 -- Faster hunger depletion in winter
+        end
+        self.hunger = math.max(0, self.hunger - dt * hungerRate)
         if self.hunger <= 0 then
             self.isFed = false
         end
@@ -80,6 +83,8 @@ function Chicken:update(dt)
                     adjustedEggLayingInterval = adjustedEggLayingInterval + 1
                 elseif weather == 'stormy' then
                     adjustedEggLayingInterval = adjustedEggLayingInterval + 2
+                elseif weather == 'winter' then
+                    adjustedEggLayingInterval = adjustedEggLayingInterval + 1 -- Example adjustment for winter
                 end
 
                 if self.nextEggTimer >= adjustedEggLayingInterval then
@@ -89,6 +94,10 @@ function Chicken:update(dt)
             end
         end
     end
+
+    -- Ensure chickens stay within vertical bounds
+    local oscillationAmplitude = 10 -- Maximum pixels to move up and down
+    self.y = self.baseY + math.sin(love.timer.getTime() * 2) * oscillationAmplitude
 end
 
 -- Initialize chickens
@@ -97,7 +106,9 @@ chickens = {}
 function initializeChickens(chickenPositions)
     chickens = {}
     for _, pos in ipairs(chickenPositions) do
-        table.insert(chickens, Chicken:new(pos.x, pos.y))
+        local chicken = Chicken:new(pos.x, pos.y)
+        chicken.baseY = pos.y -- Store the original Y position for oscillation
+        table.insert(chickens, chicken)
     end
 end
 
@@ -265,14 +276,14 @@ dog = {
 tutorialStep = 1
 tutorialMessages = {
     "Welcome to Poultry Profits!",
-    "Use the WASD or Arrow keys to move your character.",
-    "Collect eggs from the chickens by moving near them and pressing Spacebar.",
-    "Feed chickens by moving near them and pressing Spacebar if you have feed.",
+    "Use WASD or arrow keys to move your character.",
+    "Approach a chicken and press the spacebar to collect eggs.",
+    "If you have feed, approach a chicken and press the spacebar to feed it.",
     "Visit the shop to buy upgrades and feed.",
-    "Sell eggs at the market to earn money.",
+    "Sell your eggs at the market to earn money.",
     "Complete quests to earn rewards.",
     "Protect your chickens from predators!",
-    "Press 'P' to pause the game at any time.",
+    "Press 'P' at any time to pause the game.",
     "Press 'Enter' to start your farming adventure!"
 }
 
@@ -290,12 +301,6 @@ gameState = "mainMenu" -- Possible states: mainMenu, tutorial, playing, paused
 -- Level Management
 currentLevel = 1
 totalLevels = 3
-
--- Require game features after defining globals
-gameFeatures = require("gameFeatures")
-randomEvents = gameFeatures.randomEvents
-upgradeSystem = gameFeatures.upgradeSystem
-inventorySystem = gameFeatures.inventorySystem
 
 -- Helper Functions
 function checkCollision(a, b)
@@ -364,19 +369,18 @@ function displayGlobalInfo()
     love.graphics.setFont(hudFont)
     love.graphics.setColor(0, 0, 0)
     love.graphics.print("Day: " .. currentDay, 20, 20)
-    love.graphics.print("Level: " .. player.level .. " (XP: " .. player.experience .. "/" .. player.experienceToLevelUp .. ")", 20, 40)
+    love.graphics.print("Level: " .. player.level .. " (" .. money .. " KSH / " .. getLevelObjective() .. " KSH)", 20, 40)
     love.graphics.print("Eggs: " .. player.carryingEggs .. "/" .. player.maxCapacity, 20, 60)
     love.graphics.print("Feed: " .. player.carryingFeed .. "/" .. player.maxFeedCapacity, 20, 80)
     love.graphics.print("Money: " .. money .. " KSH", 20, 100)
     love.graphics.print("Eggs in Market: " .. totalEggsInMarket .. "/" .. marketCapacity, 20, 120)
-    love.graphics.print("Combo Multiplier: x" .. string.format("%.1f", comboMultiplier), 20, 140)
-    love.graphics.print("High Score: " .. highScore .. " KSH", 20, 160)
+    love.graphics.print("High Score: " .. highScore .. " KSH", 20, 140)
     if isNight then
-        love.graphics.print("Time: Night", 20, 180)
+        love.graphics.print("Time: Night", 20, 160)
     else
-        love.graphics.print("Time: Day", 20, 180)
+        love.graphics.print("Time: Day", 20, 160)
     end
-    love.graphics.print("Weather: " .. weather, 20, 200)
+    love.graphics.print("Weather: " .. weather, 20, 180)
     local yOffset = 220
     if player.hasFarmhand then
         love.graphics.print("Farmhand: Hired", 20, yOffset)
@@ -386,82 +390,78 @@ function displayGlobalInfo()
         love.graphics.print("Guard Dog: Purchased", 20, yOffset)
         yOffset = yOffset + 20
     end
-    -- Display current quest
-    if #player.quests > 0 then
-        local quest = player.quests[1]
-        love.graphics.print("Current Quest: " .. quest.description, 20, yOffset)
-        yOffset = yOffset + 20
-        -- Display progress if applicable
-        if quest.description:find("Collect") then
-            local target = tonumber(quest.description:match("%d+"))
-            local progress = achievements.eggCollector.progress
-            love.graphics.print("Progress: " .. progress .. "/" .. target, 20, yOffset)
-        elseif quest.description:find("Earn") then
-            local target = tonumber(quest.description:match("%d+"))
-            love.graphics.print("Progress: " .. money .. "/" .. target .. " KSH", 20, yOffset)
-        elseif quest.description:find("Level") then
-            local target = tonumber(quest.description:match("%d+"))
-            yOffset = yOffset + 20
-            love.graphics.print("Progress: Level " .. player.level .. "/" .. target, 20, yOffset)
-        end
+    -- Removed Current Quest and Progress display
+end
+
+-- Function to get current level's money objective
+function getLevelObjective()
+    if currentLevel == 1 then
+        return 400
+    elseif currentLevel == 2 then
+        return 1400
+    elseif currentLevel == 3 then
+        return 2200 -- Adjust as needed for Level 3
     else
-        love.graphics.print("No Active Quests", 20, yOffset)
+        return "N/A"
     end
 end
 
 -- Load Function
 function love.load()
-    love.window.setMode(windowWidth, windowHeight)
+    love.window.setMode(windowWidth, windowHeight, {resizable=true})
     love.window.setTitle("Poultry Profits: Egg-cellent Business")
     math.randomseed(os.time())
     dog.x = barn.x + barn.width + 10 -- Start position near the barn
+    dog.y = barn.y -- Initialize dog position
 
-    -- 加载当前关卡
+    -- Load current level
     loadLevel(currentLevel)
 end
 
 function initializeQuests()
     -- Start with one random quest
-    player.quests = {generateRandomQuest()}
+    player.quests = {} -- Removed quests as per instructions
 end
 
 -- Level Management Functions
 function loadLevel(levelNumber)
-    -- 检查关卡是否存在
+    -- Check if level exists
     if levelNumber > totalLevels then
-        -- 所有关卡完成，游戏结束或循环
+        -- All levels completed, reset to level 1 or end game
         currentLevel = 1
-        levelNumber = 1
     end
 
-    -- 加载关卡数据
-    local levelData = require("level" .. levelNumber)
+    -- Load level data
+    local status, levelData = pcall(require, "level" .. levelNumber)
+    if not status then
+        print("Error loading level" .. levelNumber .. ".lua")
+        return
+    end
 
-    -- 使用关卡数据初始化游戏
+    -- Use level data to initialize game
     initializeGame(levelData)
 end
 
 function initializeGame(levelData)
-    -- 初始化鸡
+    -- Initialize chickens
     initializeChickens(levelData.chickens)
 
-    -- 设置初始金钱
+    -- Set initial money
     money = levelData.initialMoney or 0
 
-    -- 设置天气
+    -- Set weather
     weather = levelData.weather or 'sunny'
 
-    -- 设置关卡目标
+    -- Set level objective
     levelObjective = levelData.objective or function() return false end
     levelCompleted = false
 
-    -- 重置其他游戏状态
+    -- Reset other game states
     totalEggsInMarket = 0
     player.carryingEggs = 0
     player.carryingFeed = 5
-    player.experience = 0
-    player.level = 1
-    player.quests = {}
+    player.level = levelData.initialLevel or 1
+    -- Removed quests initialization
     achievements = {
         eggCollector = {unlocked = false, threshold = 50, progress = 0},
         chickenGuardian = {unlocked = false, threshold = 5, count = 0},
@@ -469,29 +469,30 @@ function initializeGame(levelData)
         questMaster = {unlocked = false, threshold = 3, completed = 0},
     }
 
-    -- 初始化商店升级
-    upgradeSystem.init()
+    -- Initialize shop upgrades
+    gameFeatures.upgradeSystem.init()
 
-    -- 初始化任务
+    -- Initialize quests (empty as per instructions)
     initializeQuests()
 
-    -- 重置计时器
+    -- Reset timers
     dayTimer = 0
     weatherTimer = 0
 
-    -- 初始化掠食者
+    -- Initialize predators based on level
+    predatorsActive = levelData.predatorsActive or false
     for _, predator in pairs(predators) do
         predator.isActive = false
         predator.spawnTimer = 0
     end
 
-    -- 初始化随机事件
-    randomEvents.init()
+    -- Initialize random events
+    gameFeatures.randomEvents.init()
 
-    -- 初始化库存系统
-    inventorySystem.init()
+    -- Initialize inventory system
+    gameFeatures.inventorySystem.init()
 
-    -- 初始化顾客
+    -- Initialize customers
     spawnCustomersAtMarket()
 end
 
@@ -510,6 +511,7 @@ function love.update(dt)
         if isPaused then
             return
         end
+    
 
         -- Update messages
         for i = #messages, 1, -1 do
@@ -537,11 +539,14 @@ function love.update(dt)
         -- Weather progression
         weatherTimer = weatherTimer + dt
         if weatherTimer >= weatherDuration then
-            -- Change weather
-            local weatherOptions = {'sunny', 'rainy', 'stormy'}
-            weather = weatherOptions[math.random(#weatherOptions)]
+            -- Change weather only if not winter
+            if weather ~= 'winter' then
+                local weatherOptions = {'sunny', 'rainy', 'stormy'}
+                weather = weatherOptions[math.random(#weatherOptions)]
+                table.insert(messages, {text = "The weather has changed to " .. weather .. "!", timer = 3})
+                -- Adjust hunger rate if necessary
+            end
             weatherTimer = 0
-            table.insert(messages, {text = "The weather has changed to " .. weather .. "!", timer = 3})
         end
 
         -- Combo timer
@@ -557,6 +562,7 @@ function love.update(dt)
 
         -- Egg collection logic
         if currentScreen == "farm" then
+            gameFeatures.upgradeSystem.update()
             updateFarm(dt)
         elseif currentScreen == "market" then
             updateMarket(dt)
@@ -576,7 +582,7 @@ function love.update(dt)
             buttonHover = false
         end
 
-        -- Update quests
+        -- Update quests (no quests, so this does nothing)
         updateQuests()
 
         -- Check achievements
@@ -603,714 +609,733 @@ function love.update(dt)
         updateDog(dt)
 
         -- Update random events
-        randomEvents.update(dt)
+        gameFeatures.randomEvents.update(dt)
 
-        -- Update upgrade system if needed
-        upgradeSystem.update()
-
-        -- 更新收银机
+        -- Update cash register
         cash.updateCashRegister(dt)
 
-        -- 检查关卡完成
+        -- Update customer timers
+        for i = #customerTimers, 1, -1 do
+            customerTimers[i] = customerTimers[i] - dt
+            if customerTimers[i] <= 0 then
+                table.remove(customers, i)
+                table.remove(customerNeeds, i)
+                table.remove(customerTimers, i)
+            end
+        end
+
+        -- Update predators only if active in current level
+        if predatorsActive then
+            updatePredators(dt)
+        end
+
+        -- Check level completion
         checkLevelCompletion()
     end
 end
 
-function updateHighScore()
-    if money > highScore then
-        highScore = money
-    end
-end
-
-function handlePlayerMovement(dt)
-    if (love.keyboard.isDown("right") or love.keyboard.isDown("d")) and player.x + player.size < windowWidth then
-        player.x = player.x + player.speed * dt
-    end
-    if (love.keyboard.isDown("left") or love.keyboard.isDown("a")) and player.x > 0 then
-        player.x = player.x - player.speed * dt
-    end
-    if (love.keyboard.isDown("up") or love.keyboard.isDown("w")) and player.y > 0 then
-        player.y = player.y - player.speed * dt
-    end
-    if (love.keyboard.isDown("down") or love.keyboard.isDown("s")) and player.y + player.size < windowHeight then
-        player.y = player.y + player.speed * dt
-    end
-end
-
-function updateFarm(dt)
-    for _, chicken in ipairs(chickens) do
-        chicken:update(dt)
-    end
-
-    -- Egg bouncing animation and remove collected eggs
-    for i = #eggs, 1, -1 do
-        local egg = eggs[i]
-        if egg.collected then
-            table.remove(eggs, i)
-        else
-            egg.y = egg.y + egg.ySpeed * dt
-            if egg.y >= egg.maxY or egg.y <= egg.minY then
-                egg.ySpeed = -egg.ySpeed
-            end
+    function updateHighScore()
+        if money > highScore then
+            highScore = money
         end
     end
 
-    -- Predator logic
-    updatePredators(dt)
+    function handlePlayerMovement(dt)
+        local speedMultiplier = 1
+        if weather == 'winter' then
+            speedMultiplier = 0.8 -- Player moves 20% slower
+        end
 
-    -- Egg Magnet effect
-    if player.hasEggMagnet then
-        for _, egg in ipairs(eggs) do
-            if not egg.collected then
-                local dx = player.x - egg.x
-                local dy = player.y - egg.y
-                local distance = math.sqrt(dx * dx + dy * dy)
-                if distance < 100 then -- Magnet radius
-                    local pullStrength = (100 - distance) / 100
-                    egg.x = egg.x + dx * pullStrength * dt
-                    egg.y = egg.y + dy * pullStrength * dt
+        if (love.keyboard.isDown("right") or love.keyboard.isDown("d")) and player.x + player.size < windowWidth then
+            player.x = player.x + player.speed * speedMultiplier * dt
+        end
+        if (love.keyboard.isDown("left") or love.keyboard.isDown("a")) and player.x > 0 then
+            player.x = player.x - player.speed * speedMultiplier * dt
+        end
+        if (love.keyboard.isDown("up") or love.keyboard.isDown("w")) and player.y > 0 then
+            player.y = player.y - player.speed * speedMultiplier * dt
+        end
+        if (love.keyboard.isDown("down") or love.keyboard.isDown("s")) and player.y + player.size < windowHeight then
+            player.y = player.y + player.speed * speedMultiplier * dt
+        end
+    end
+
+    function updateFarm(dt)
+        for _, chicken in ipairs(chickens) do
+            chicken:update(dt, weather, isNight)
+        end
+
+        -- Egg bouncing animation and remove collected eggs
+        for i = #eggs, 1, -1 do
+            local egg = eggs[i]
+            if egg.collected then
+                table.remove(eggs, i)
+            else
+                egg.y = egg.y + egg.ySpeed * dt
+                if egg.y >= egg.maxY or egg.y <= egg.minY then
+                    egg.ySpeed = -egg.ySpeed
+                end
+            end
+        end
+
+        -- Predator logic handled separately
+        if predatorsActive then
+            updatePredators(dt)
+        end
+
+        -- Egg Magnet effect
+        if player.hasEggMagnet then
+            for _, egg in ipairs(eggs) do
+                if not egg.collected then
+                    local dx = player.x - egg.x
+                    local dy = player.y - egg.y
+                    local distance = math.sqrt(dx * dx + dy * dy)
+                    if distance < 100 then -- Magnet radius
+                        local pullStrength = (100 - distance) / 100
+                        egg.x = egg.x + dx * pullStrength * dt
+                        egg.y = egg.y + dy * pullStrength * dt
+                    end
+                end
+            end
+        end
+
+        -- Farmhand collects eggs
+        if player.hasFarmhand then
+            for _, egg in ipairs(eggs) do
+                if not egg.collected then
+                    local distance = math.sqrt((player.x - egg.x)^2 + (player.y - egg.y)^2)
+                    if distance < 50 and player.carryingEggs < player.maxCapacity then
+                        egg.collected = true
+                        if egg.isGolden then
+                            player.carryingEggs = player.carryingEggs + 1
+                            money = money + goldenEggPrice
+                            table.insert(messages, {text = "Farmhand collected a golden egg! +" .. goldenEggPrice .. " KSH", timer = 3})
+                        else
+                            player.carryingEggs = player.carryingEggs + 1
+                            table.insert(messages, {text = "Collected an egg!", timer = 2})
+                        end
+                        egg.chicken.hasEgg = false
+                        achievements.eggCollector.progress = achievements.eggCollector.progress + 1
+                    end
                 end
             end
         end
     end
 
-    -- Farmhand collects eggs
-    if player.hasFarmhand then
-        for _, egg in ipairs(eggs) do
-            if not egg.collected then
-                if player.carryingEggs < player.maxCapacity then
-                    egg.collected = true
-                    if egg.isGolden then
-                        player.carryingEggs = player.carryingEggs + 1
-                        money = money + goldenEggPrice
-                        table.insert(messages, {text = "Farmhand collected a golden egg! +" .. goldenEggPrice .. " KSH", timer = 3})
+    function updatePredators(dt)
+        for name, predator in pairs(predators) do
+            if #chickens > 0 then
+                local adjustedInterval = predator.spawnInterval - (currentDay * 1)
+                adjustedInterval = math.max(adjustedInterval, 20)
+
+                -- Adjust spawn intervals based on time and weather
+                if isNight and name == "fox" then
+                    adjustedInterval = adjustedInterval - 10 -- Fox more active at night
+                end
+
+                if weather == 'stormy' and name == "hawk" then
+                    adjustedInterval = adjustedInterval + 10 -- Hawks less active during storm
+                end
+
+                if not predator.isActive then
+                    predator.spawnTimer = predator.spawnTimer + dt
+                    if predator.spawnTimer >= adjustedInterval then
+                        predator.isActive = true
+                        if name == "hawk" then
+                            predator.x = math.random(0, windowWidth)
+                            predator.y = -50
+                        elseif name == "fox" then
+                            predator.x = -50
+                            predator.y = math.random(100, windowHeight - 100)
+                        elseif name == "snake" then
+                            predator.x = windowWidth + 50
+                            predator.y = math.random(100, windowHeight - 100)
+                        end
+                        predator.targetChicken = chickens[math.random(1, #chickens)]
+                        predator.spawnTimer = 0
+
+                        -- Activate Guard Dog for fox and snake
+                        if player.hasGuardDog and (name == "fox" or name == "snake") then
+                            dog.isActive = true
+                            dog.targetPredator = predator
+                        end
+                    end
+                else
+                    if predator.targetChicken == nil or #chickens == 0 then
+                        predator.isActive = false
                     else
-                        player.carryingEggs = player.carryingEggs + 1
-                    end
-                    egg.chicken.hasEgg = false
-                    achievements.eggCollector.progress = achievements.eggCollector.progress + 1
-                    player.experience = player.experience + 5
-                    checkLevelUp()
-                end
-            end
-        end
-    end
-end
+                        -- Move towards target chicken
+                        local dx = predator.targetChicken.x - predator.x
+                        local dy = predator.targetChicken.y - predator.y
+                        local distance = math.sqrt(dx * dx + dy * dy)
+                        if distance > 0 then
+                            predator.x = predator.x + (dx / distance) * predator.speed * dt
+                            predator.y = predator.y + (dy / distance) * predator.speed * dt
+                        end
 
-function updatePredators(dt)
-    for name, predator in pairs(predators) do
-        if #chickens > 0 then
-            local adjustedInterval = predator.spawnInterval - (currentDay * 1)
-            adjustedInterval = math.max(adjustedInterval, 20)
+                        -- Check if predator reaches the chicken
+                        if checkCollision(predator, predator.targetChicken) then
+                            -- Remove the chicken
+                            for i, chicken in ipairs(chickens) do
+                                if chicken == predator.targetChicken then
+                                    table.remove(chickens, i)
+                                    table.insert(messages, {text = "A chicken was taken by a predator!", timer = 3})
+                                    break
+                                end
+                            end
+                            predator.isActive = false
+                        end
 
-            -- Adjust spawn intervals based on time and weather
-            if isNight and name == "fox" then
-                adjustedInterval = adjustedInterval - 10 -- Fox more active at night
-            end
-
-            if weather == 'stormy' and name == "hawk" then
-                adjustedInterval = adjustedInterval + 10 -- Hawks less active during storm
-            end
-
-            if not predator.isActive then
-                predator.spawnTimer = predator.spawnTimer + dt
-                if predator.spawnTimer >= adjustedInterval then
-                    predator.isActive = true
-                    if name == "hawk" then
-                        predator.x = math.random(0, windowWidth)
-                        predator.y = -50
-                    elseif name == "fox" then
-                        predator.x = -50
-                        predator.y = math.random(100, windowHeight - 100)
-                    elseif name == "snake" then
-                        predator.x = windowWidth + 50
-                        predator.y = math.random(100, windowHeight - 100)
-                    end
-                    predator.targetChicken = chickens[math.random(1, #chickens)]
-                    predator.spawnTimer = 0
-
-                    -- Activate Guard Dog for fox and snake
-                    if player.hasGuardDog and (name == "fox" or name == "snake") then
-                        dog.isActive = true
-                        dog.targetPredator = predator
+                        -- Hawk cannot be caught by the dog
+                        if player.hasGuardDog and (name == "hawk") then
+                            -- Existing guard dog effect remains
+                            if math.random() < 0.5 then
+                                predator.isActive = false
+                                table.insert(messages, {text = "Your guard dog scared away a hawk!", timer = 2})
+                            end
+                        end
                     end
                 end
             else
-                if predator.targetChicken == nil or #chickens == 0 then
-                    predator.isActive = false
-                else
-                    -- Move towards target chicken
-                    local dx = predator.targetChicken.x - predator.x
-                    local dy = predator.targetChicken.y - predator.y
-                    local distance = math.sqrt(dx * dx + dy * dy)
-                    if distance > 0 then
-                        predator.x = predator.x + (dx / distance) * predator.speed * dt
-                        predator.y = predator.y + (dy / distance) * predator.speed * dt
-                    end
-
-                    -- Check if predator reaches the chicken
-                    if checkCollision(predator, predator.targetChicken) then
-                        -- Remove the chicken
-                        for i, chicken in ipairs(chickens) do
-                            if chicken == predator.targetChicken then
-                                table.remove(chickens, i)
-                                table.insert(messages, {text = "A chicken was taken by a predator!", timer = 3})
-                                break
-                            end
-                        end
-                        predator.isActive = false
-                    end
-
-                    -- Hawk cannot be caught by the dog
-                    if player.hasGuardDog and (name == "hawk") then
-                        -- Existing guard dog effect remains
-                        if math.random() < 0.5 then
-                            predator.isActive = false
-                            table.insert(messages, {text = "Your guard dog scared away a hawk!", timer = 2})
-                        end
-                    end
-                end
+                predator.isActive = false
             end
-        else
-            predator.isActive = false
         end
     end
-end
 
-function updateDog(dt)
-    if player.hasGuardDog then
-        if dog.isActive then
-            if dog.targetPredator and dog.targetPredator.isActive then
-                -- Move towards the predator
-                local dx = dog.targetPredator.x - dog.x
-                local dy = dog.targetPredator.y - dog.y
+    function updateDog(dt)
+        if player.hasGuardDog then
+            if dog.isActive then
+                if dog.targetPredator and dog.targetPredator.isActive then
+                    -- Move towards the predator
+                    local dx = dog.targetPredator.x - dog.x
+                    local dy = dog.targetPredator.y - dog.y
+                    local distance = math.sqrt(dx * dx + dy * dy)
+                    if distance > 0 then
+                        dog.x = dog.x + (dx / distance) * dog.speed * dt
+                        dog.y = dog.y + (dy / distance) * dog.speed * dt
+                    end
+
+                    -- Check if dog reaches the predator
+                    if checkCollision(dog, dog.targetPredator) then
+                        -- Remove the predator
+                        dog.targetPredator.isActive = false
+                        table.insert(messages, {text = "Your guard dog caught a predator!", timer = 2})
+                        dog.targetPredator = nil
+                        dog.isActive = false
+                    end
+                else
+                    -- Predator is no longer active
+                    dog.targetPredator = nil
+                    dog.isActive = false
+                end
+            else
+                -- Dog returns to barn
+                local dx = (barn.x + barn.width + 10) - dog.x
+                local dy = barn.y - dog.y
                 local distance = math.sqrt(dx * dx + dy * dy)
                 if distance > 0 then
                     dog.x = dog.x + (dx / distance) * dog.speed * dt
                     dog.y = dog.y + (dy / distance) * dog.speed * dt
                 end
-
-                -- Check if dog reaches the predator
-                if checkCollision(dog, dog.targetPredator) then
-                    -- Remove the predator
-                    dog.targetPredator.isActive = false
-                    table.insert(messages, {text = "Your guard dog caught a predator!", timer = 2})
-                    dog.targetPredator = nil
-                    dog.isActive = false
-                end
-            else
-                -- Predator is no longer active
-                dog.targetPredator = nil
-                dog.isActive = false
-            end
-        else
-            -- Dog returns to barn
-            local dx = (barn.x + barn.width + 10) - dog.x
-            local dy = barn.y - dog.y
-            local distance = math.sqrt(dx * dx + dy * dy)
-            if distance > 0 then
-                dog.x = dog.x + (dx / distance) * dog.speed * dt
-                dog.y = dog.y + (dy / distance) * dog.speed * dt
             end
         end
     end
-end
 
-function updateQuests()
-    if #player.quests > 0 then
-        local currentQuest = player.quests[1]
-        if currentQuest.condition() and not currentQuest.completed then
-            currentQuest.completed = true
-            money = money + currentQuest.reward
-            achievements.questMaster.completed = achievements.questMaster.completed + 1
-            table.insert(messages, {text = "Quest Completed! Reward: " .. currentQuest.reward .. " KSH", timer = 3})
-            -- Remove completed quest and add a new one
-            table.remove(player.quests, 1)
-            table.insert(player.quests, generateRandomQuest())
-        end
+    function updateQuests()
+        -- Removed quests display as per instructions
     end
-end
 
-function checkAchievements()
-    if not achievements.eggCollector.unlocked and achievements.eggCollector.progress >= achievements.eggCollector.threshold then
-        achievements.eggCollector.unlocked = true
-        table.insert(messages, {text = "Achievement Unlocked: Egg Collector!", timer = 3})
-    end
-    if not achievements.chickenGuardian.unlocked and achievements.chickenGuardian.count >= achievements.chickenGuardian.threshold then
-        achievements.chickenGuardian.unlocked = true
-        table.insert(messages, {text = "Achievement Unlocked: Chicken Guardian!", timer = 3})
-    end
-    if not achievements.masterFarmer.unlocked and achievements.masterFarmer.progress >= achievements.masterFarmer.threshold then
-        achievements.masterFarmer.unlocked = true
-        table.insert(messages, {text = "Achievement Unlocked: Master Farmer!", timer = 3})
-    end
-    if not achievements.questMaster.unlocked and achievements.questMaster.completed >= achievements.questMaster.threshold then
-        achievements.questMaster.unlocked = true
-        table.insert(messages, {text = "Achievement Unlocked: Quest Master!", timer = 3})
-    end
-end
-
-function checkLevelCompletion()
-    if levelObjective() then
-        levelCompleted = true
-        table.insert(messages, {text = "Level " .. currentLevel .. " Completed!", timer = 5})
-        currentLevel = currentLevel + 1
-        loadLevel(currentLevel)
-    end
-end
-
--- Draw Function
-function love.draw()
-    if gameState == "mainMenu" then
-        drawMainMenu()
-    elseif gameState == "tutorial" then
-        drawTutorial()
-    elseif gameState == "paused" then
-        drawPauseMenu()
-    elseif gameState == "playing" then
-        -- Background
-        if isNight then
-            love.graphics.setColor(0.1, 0.1, 0.2)
-        else
-            love.graphics.setColor(0.9, 0.9, 0.9)
+    function checkAchievements()
+        if not achievements.eggCollector.unlocked and achievements.eggCollector.progress >= achievements.eggCollector.threshold then
+            achievements.eggCollector.unlocked = true
+            table.insert(messages, {text = "Achievement Unlocked: Egg Collector!", timer = 3})
         end
-        love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
-
-        -- Weather overlay
-        if weather == 'rainy' then
-            love.graphics.setColor(0, 0, 1, 0.2)
-            love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
-        elseif weather == 'stormy' then
-            love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
-            love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+        if not achievements.chickenGuardian.unlocked and achievements.chickenGuardian.count >= achievements.chickenGuardian.threshold then
+            achievements.chickenGuardian.unlocked = true
+            table.insert(messages, {text = "Achievement Unlocked: Chicken Guardian!", timer = 3})
         end
-
-        -- Display global info
-        displayGlobalInfo()
-
-        -- Display messages
-        love.graphics.setFont(messageFont)
-        for i, message in ipairs(messages) do
-            love.graphics.setColor(0, 0, 0)
-            love.graphics.printf(message.text, 0, 240 + i * 20, windowWidth, "center")
+        if not achievements.masterFarmer.unlocked and achievements.masterFarmer.progress >= achievements.masterFarmer.threshold then
+            achievements.masterFarmer.unlocked = true
+            table.insert(messages, {text = "Achievement Unlocked: Master Farmer!", timer = 3})
         end
-
-        -- Player
-        drawPlayer()
-
-        if currentScreen == "farm" then
-            drawFarm()
-        elseif currentScreen == "market" then
-            drawMarket()
-        end
-
-        -- Screen toggle button
-        if buttonHover then
-            love.graphics.setColor(0.5, 0.5, 1)
-        else
-            love.graphics.setColor(0.7, 0.7, 0.7)
-        end
-        love.graphics.rectangle("fill", 0, buttonY, buttonWidth, buttonHeight)
-        love.graphics.setColor(0, 0, 0)
-        love.graphics.setFont(hudFont)
-        if currentScreen == "farm" then
-            love.graphics.printf("Go to Market", 0, buttonY + 15, windowWidth, "center")
-        else
-            love.graphics.printf("Go to Farm", 0, buttonY + 15, windowWidth, "center")
-        end
-
-        -- Draw inventory
-        inventorySystem.draw()
-
-        -- Pause menu
-        if isPaused then
-            drawPauseMenu()
+        if not achievements.questMaster.unlocked and achievements.questMaster.completed >= achievements.questMaster.threshold then
+            achievements.questMaster.unlocked = true
+            table.insert(messages, {text = "Achievement Unlocked: Quest Master!", timer = 3})
         end
     end
 
-    -- 确保收银机界面绘制
-    if cash.isCashRegisterOpen() then
-        cash.drawCashRegister()
-    end
-end
-
-function drawPlayer()
-    -- Shadow
-    love.graphics.setColor(0, 0, 0, 0.3)
-    love.graphics.ellipse("fill", player.x + player.size / 2, player.y + player.size, player.size / 2, 10)
-    -- Player
-    love.graphics.setColor(1, 0, 0)
-    love.graphics.rectangle("fill", player.x, player.y, player.size, player.size)
-end
-
-function drawMainMenu()
-    love.graphics.setColor(0.8, 0.9, 1)
-    love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(titleFont)
-    love.graphics.printf("Poultry Profits: Egg-cellent Business", 0, 100, windowWidth, "center")
-    love.graphics.setFont(hudFont)
-    love.graphics.printf("Press 'Enter' to Start Game", 0, 200, windowWidth, "center")
-    love.graphics.printf("Press 'Esc' to Exit", 0, 250, windowWidth, "center")
-end
-
-function drawTutorial()
-    love.graphics.setColor(0.9, 0.9, 0.9)
-    love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(messageFont)
-    love.graphics.printf(tutorialMessages[tutorialStep], 50, windowHeight / 2 - 50, windowWidth - 100, "center")
-    love.graphics.printf("Press 'Enter' to continue", 0, windowHeight - 100, windowWidth, "center")
-end
-
-function drawPauseMenu()
-    love.graphics.setColor(0, 0, 0, 0.7)
-    love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
-    love.graphics.setColor(1, 1, 1)
-    love.graphics.setFont(titleFont)
-    love.graphics.printf("Game Paused", 0, windowHeight / 2 - 100, windowWidth, "center")
-    love.graphics.setFont(hudFont)
-    love.graphics.printf("Press 'P' to Resume", 0, windowHeight / 2 - 50, windowWidth, "center")
-    love.graphics.printf("Press 'Esc' to Main Menu", 0, windowHeight / 2, windowWidth, "center")
-end
-
-function drawFarm()
-    -- Barn
-    love.graphics.setColor(0.5, 0.25, 0)
-    love.graphics.rectangle("fill", barn.x, barn.y, barn.width, barn.height)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(hudFont)
-    love.graphics.print("Barn (Level " .. barn.level .. ")", barn.x - 10, barn.y - 20)
-
-    -- Chickens
-    for _, chicken in ipairs(chickens) do
-        if chicken.isSleeping then
-            love.graphics.setColor(0.7, 0.7, 0.7)
-        elseif chicken.hunger < 30 then
-            love.graphics.setColor(1, 0, 0)
-        elseif chicken.isFed then
-            love.graphics.setColor(1, 1, 0)
-        else
-            love.graphics.setColor(0.5, 0.5, 0)
-        end
-        love.graphics.rectangle("fill", chicken.x, chicken.y, chicken.size, chicken.size)
-        -- Chicken hunger bar
-        love.graphics.setColor(1, 0, 0)
-        love.graphics.rectangle("fill", chicken.x, chicken.y - 10, (chicken.hunger / 100) * chicken.size, 5)
-        -- Clamp hunger bar within bounds
-        chicken.hunger = math.max(0, math.min(100, chicken.hunger))
-        -- Chicken animation
-        chicken.y = chicken.y + math.sin(love.timer.getTime() * 2) * 0.5
-    end
-
-    -- Eggs
-    for _, egg in ipairs(eggs) do
-        if not egg.collected then
-            if egg.isGolden then
-                love.graphics.setColor(1, 0.84, 0)
-            elseif isInPickupRange(player, egg) then
-                love.graphics.setColor(0, 1, 0)
-            else
-                love.graphics.setColor(1, 1, 1)
-            end
-            love.graphics.circle("fill", egg.x, egg.y, 10)
+    function checkLevelCompletion()
+        if levelObjective() then
+            levelCompleted = true
+            table.insert(messages, {text = "Level " .. currentLevel .. " Completed!", timer = 5})
+            currentLevel = currentLevel + 1
+            loadLevel(currentLevel)
         end
     end
 
-    -- Shop
-    love.graphics.setColor(shop.color)
-    love.graphics.rectangle("fill", shop.x, shop.y, shop.width, shop.height)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(hudFont)
-    love.graphics.print("Shop", shop.x + 20, shop.y + 15)
-
-    -- Predators
-    for name, predator in pairs(predators) do
-        if predator.isActive then
-            local color = {0, 0, 0}
-            if name == "fox" then
-                color = {1, 0.5, 0}
-            elseif name == "snake" then
-                color = {0, 1, 0}
-            elseif name == "hawk" then
-                color = {0.5, 0.5, 0.5}
-            end
-            drawPredator(predator, name:gsub("^%l", string.upper), color)
-        end
-    end
-
-    -- Guard Dog
-    if player.hasGuardDog then
-        love.graphics.setColor(0.5, 0.35, 0)
-        love.graphics.rectangle("fill", dog.x, dog.y, dog.size, dog.size)
-        love.graphics.setColor(0, 0, 0)
-        love.graphics.setFont(hudFont)
-        love.graphics.print("Dog", dog.x + 5, dog.y + 15)
-    end
-
-    -- Shop UI
-    drawShopUI()
-end
-
-function drawPredator(predator, name, color)
-    love.graphics.setColor(color)
-    love.graphics.rectangle("fill", predator.x, predator.y, predator.size, predator.size)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(hudFont)
-    love.graphics.print(name, predator.x + 5, predator.y + 15)
-end
-
-function drawShopUI()
-    if isInPickupRange(player, shop) then
-        love.graphics.setColor(1, 1, 1, 0.8)
-        love.graphics.rectangle("fill", shop.x - 50, shop.y - 300, 300, 280)
-        love.graphics.setColor(0, 0, 0)
-        love.graphics.setFont(hudFont)
-        love.graphics.print("Upgrades:", shop.x - 30, shop.y - 290)
-
-        shop.upgradeRects = {} -- Initialize upgrade rects table
-
-        for i, upgrade in ipairs(shop.upgrades) do
-            local upgradeX = shop.x - 30
-            local upgradeY = shop.y - 290 + i * 20
-            local upgradeWidth = 280
-            local upgradeHeight = 20
-
-            -- Store the rectangle for this upgrade
-            shop.upgradeRects[i] = {x = upgradeX, y = upgradeY, width = upgradeWidth, height = upgradeHeight}
-
-            -- Draw the upgrade
-            if mouseOverUpgrade == i then
-                love.graphics.setColor(0, 0.5, 1)
-            elseif i == shop.selectedUpgrade then
-                love.graphics.setColor(1, 0, 0)
-            elseif money >= upgrade.cost then
-                love.graphics.setColor(0, 0, 0)
-            else
-                love.graphics.setColor(0.5, 0.5, 0.5)
-            end
-            love.graphics.print(upgrade.name .. ": " .. upgrade.cost .. " KSH", upgradeX, upgradeY)
-        end
-        love.graphics.setColor(0, 0, 0)
-        love.graphics.print("Click on an upgrade to purchase", shop.x - 30, shop.y - 290 + (#shop.upgrades + 1) * 20)
-    end
-end
-
-function drawMarket()
-    -- Marketplace
-    love.graphics.setColor(marketplace.color)
-    love.graphics.rectangle("fill", marketplace.x, marketplace.y, marketplace.width, marketplace.height)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(hudFont)
-    love.graphics.print("Market", marketplace.x + 10, marketplace.y + 40)
-
-    -- Customers
-    for i, customer in ipairs(customers) do
-        love.graphics.setColor(customer.color)
-        love.graphics.rectangle("fill", customer.x, customer.y, customer.width, customer.height)
-        love.graphics.setColor(0, 0, 0)
-        love.graphics.setFont(hudFont)
-        love.graphics.print(customer.needs .. " eggs", customer.x - 10, customer.y - 20)
-        love.graphics.print("T: " .. math.floor(customerTimers[i]), customer.x - 10, customer.y - 35)
-    end
-end
-
--- Input Handling
-function love.keypressed(key)
-    key = string.lower(key)
-
-    if cash.isCashRegisterOpen() then
-        cash.handleCashRegisterKeypress(key)
-        return -- Skip other key handling while cash register is open
-    end
-
-    if key == "escape" then
+    -- Draw Function
+    function love.draw()
         if gameState == "mainMenu" then
-            love.event.quit()
-        elseif gameState == "playing" then
-            gameState = "mainMenu"
+            drawMainMenu()
+        elseif gameState == "tutorial" then
+            drawTutorial()
         elseif gameState == "paused" then
-            gameState = "mainMenu"
+            drawPauseMenu()
+        elseif gameState == "playing" then
+            -- Background
+            if isNight then
+                love.graphics.setColor(0.1, 0.1, 0.2)
+            else
+                love.graphics.setColor(0.9, 0.9, 0.9)
+            end
+            love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+
+            -- Weather overlay
+            if weather == 'rainy' then
+                love.graphics.setColor(0, 0, 1, 0.2)
+                love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+            elseif weather == 'stormy' then
+                love.graphics.setColor(0.5, 0.5, 0.5, 0.5)
+                love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+            elseif weather == 'winter' then
+                -- Snow overlay
+                love.graphics.setColor(1, 1, 1, 0.3)
+                for i = 1, 100 do
+                    local snowX = math.random(0, windowWidth)
+                    local snowY = math.random(0, windowHeight)
+                    love.graphics.circle("fill", snowX, snowY, 2)
+                end
+            end
+
+            -- Display global info
+            displayGlobalInfo()
+
+            -- Display messages
+            love.graphics.setFont(messageFont)
+            for i, message in ipairs(messages) do
+                love.graphics.setColor(0, 0, 0)
+                love.graphics.printf(message.text, 0, 220 + i * 20, windowWidth, "center")
+            end
+
+            -- Player
+            drawPlayer()
+
+            if currentScreen == "farm" then
+                drawFarm()
+            elseif currentScreen == "market" then
+                drawMarket()
+            end
+
+            -- Screen toggle button
+            if buttonHover then
+                love.graphics.setColor(0.5, 0.5, 1)
+            else
+                love.graphics.setColor(0.7, 0.7, 0.7)
+            end
+            love.graphics.rectangle("fill", 0, buttonY, buttonWidth, buttonHeight)
+            love.graphics.setColor(0, 0, 0)
+            love.graphics.setFont(hudFont)
+            if currentScreen == "farm" then
+                love.graphics.printf("Go to Market", 0, buttonY + 15, windowWidth, "center")
+            else
+                love.graphics.printf("Go to Farm", 0, buttonY + 15, windowWidth, "center")
+            end
+
+            -- Hide inventory display as per instructions
+            -- gameFeatures.inventorySystem.draw() -- Removed to hide inventory
+
+            -- Pause menu
+            if isPaused then
+                drawPauseMenu()
+            end
+        end
+
+        -- Ensure cash register interface is drawn
+        if cash.isCashRegisterOpen() then
+            cash.drawCashRegister()
         end
     end
 
-    if gameState == "mainMenu" then
-        if key == "return" then
-            gameState = "tutorial"
+    function drawPlayer()
+        -- Shadow
+        love.graphics.setColor(0, 0, 0, 0.3)
+        love.graphics.ellipse("fill", player.x + player.size / 2, player.y + player.size, player.size / 2, 10)
+        -- Player
+        love.graphics.setColor(1, 0, 0)
+        love.graphics.rectangle("fill", player.x, player.y, player.size, player.size)
+    end
+
+    function drawMainMenu()
+        love.graphics.setColor(0.8, 0.9, 1)
+        love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+        love.graphics.setColor(0, 0, 0)
+        love.graphics.setFont(titleFont)
+        love.graphics.printf("Poultry Profits: Egg-cellent Business", 0, 100, windowWidth, "center")
+        love.graphics.setFont(hudFont)
+        love.graphics.printf("Press 'Enter' to Start Game", 0, 200, windowWidth, "center")
+        love.graphics.printf("Press 'Esc' to Exit", 0, 250, windowWidth, "center")
+    end
+
+    function drawTutorial()
+        love.graphics.setColor(0.9, 0.9, 0.9)
+        love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+        love.graphics.setColor(0, 0, 0)
+        love.graphics.setFont(messageFont)
+        love.graphics.printf(tutorialMessages[tutorialStep], 50, windowHeight / 2 - 50, windowWidth - 100, "center")
+        love.graphics.printf("Press 'Enter' to continue", 0, windowHeight - 100, windowWidth, "center")
+    end
+
+    function drawPauseMenu()
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.setFont(titleFont)
+        love.graphics.printf("Game Paused", 0, windowHeight / 2 - 100, windowWidth, "center")
+        love.graphics.setFont(hudFont)
+        love.graphics.printf("Press 'P' to Resume", 0, windowHeight / 2 - 50, windowWidth, "center")
+        love.graphics.printf("Press 'Esc' to Main Menu", 0, windowHeight / 2, windowWidth, "center")
+    end
+
+    function drawFarm()
+        -- Barn
+        love.graphics.setColor(0.5, 0.25, 0)
+        love.graphics.rectangle("fill", barn.x, barn.y, barn.width, barn.height)
+        love.graphics.setColor(0, 0, 0)
+        love.graphics.setFont(hudFont)
+        love.graphics.print("Barn (Level " .. barn.level .. ")", barn.x - 10, barn.y - 20)
+
+        -- Chickens
+        for _, chicken in ipairs(chickens) do
+            if chicken.isSleeping then
+                love.graphics.setColor(0.7, 0.7, 0.7)
+            elseif chicken.hunger < 30 then
+                love.graphics.setColor(1, 0, 0)
+            elseif chicken.isFed then
+                love.graphics.setColor(1, 1, 0)
+            else
+                love.graphics.setColor(0.5, 0.5, 0)
+            end
+            love.graphics.rectangle("fill", chicken.x, chicken.y, chicken.size, chicken.size)
+            -- Chicken hunger bar
+            love.graphics.setColor(1, 0, 0)
+            love.graphics.rectangle("fill", chicken.x, chicken.y - 10, (chicken.hunger / 100) * chicken.size, 5)
+            -- Clamp hunger bar within bounds
+            chicken.hunger = math.max(0, math.min(100, chicken.hunger))
+            -- Chicken animation already handled in update
         end
-    elseif gameState == "tutorial" then
-        if key == "return" then
-            tutorialStep = tutorialStep + 1
-            if tutorialStep > #tutorialMessages then
+
+        -- Eggs
+        for _, egg in ipairs(eggs) do
+            if not egg.collected then
+                if egg.isGolden then
+                    love.graphics.setColor(1, 0.84, 0)
+                elseif isInPickupRange(player, egg) then
+                    love.graphics.setColor(0, 1, 0)
+                else
+                    love.graphics.setColor(1, 1, 1)
+                end
+                love.graphics.circle("fill", egg.x, egg.y, 10)
+            end
+        end
+
+        -- Shop
+        love.graphics.setColor(shop.color)
+        love.graphics.rectangle("fill", shop.x, shop.y, shop.width, shop.height)
+        love.graphics.setColor(0, 0, 0)
+        love.graphics.setFont(hudFont)
+        love.graphics.print("Shop", shop.x + 20, shop.y + 15)
+
+        -- Predators
+        if predatorsActive then
+            for name, predator in pairs(predators) do
+                if predator.isActive then
+                    local color = {0, 0, 0}
+                    if name == "fox" then
+                        color = {1, 0.5, 0}
+                    elseif name == "snake" then
+                        color = {0, 1, 0}
+                    elseif name == "hawk" then
+                        color = {0.5, 0.5, 0.5}
+                    end
+                    drawPredator(predator, name:gsub("^%l", string.upper), color)
+                end
+            end
+        end
+
+        -- Guard Dog
+        if player.hasGuardDog then
+            love.graphics.setColor(0.5, 0.35, 0)
+            love.graphics.rectangle("fill", dog.x, dog.y, dog.size, dog.size)
+            love.graphics.setColor(0, 0, 0)
+            love.graphics.setFont(hudFont)
+            love.graphics.print("Dog", dog.x + 5, dog.y + 15)
+        end
+
+        -- Shop UI
+        drawShopUI()
+    end
+
+    function drawPredator(predator, name, color)
+        love.graphics.setColor(color)
+        love.graphics.rectangle("fill", predator.x, predator.y, predator.size, predator.size)
+        love.graphics.setColor(0, 0, 0)
+        love.graphics.setFont(hudFont)
+        love.graphics.print(name, predator.x + 5, predator.y + 15)
+    end
+
+    function drawShopUI()
+        if isInPickupRange(player, shop) then
+            love.graphics.setColor(1, 1, 1, 0.8)
+            love.graphics.rectangle("fill", shop.x - 50, shop.y - 300, 300, 280)
+            love.graphics.setColor(0, 0, 0)
+            love.graphics.setFont(hudFont)
+            love.graphics.print("Upgrades:", shop.x - 30, shop.y - 290)
+
+            shop.upgradeRects = {} -- Initialize upgrade rects table
+
+            for i, upgrade in ipairs(shop.upgrades) do
+                local upgradeX = shop.x - 30
+                local upgradeY = shop.y - 290 + i * 20
+                local upgradeWidth = 280
+                local upgradeHeight = 20
+
+                -- Store the rectangle for this upgrade
+                shop.upgradeRects[i] = {x = upgradeX, y = upgradeY, width = upgradeWidth, height = upgradeHeight}
+
+                -- Draw the upgrade
+                if mouseOverUpgrade == i then
+                    love.graphics.setColor(0, 0.5, 1)
+                elseif i == shop.selectedUpgrade then
+                    love.graphics.setColor(1, 0, 0)
+                elseif money >= upgrade.cost then
+                    love.graphics.setColor(0, 0, 0)
+                else
+                    love.graphics.setColor(0.5, 0.5, 0.5)
+                end
+                love.graphics.print(upgrade.name .. ": " .. upgrade.cost .. " KSH", upgradeX, upgradeY)
+            end
+            love.graphics.setColor(0, 0, 0)
+            love.graphics.print("Click on an upgrade to purchase", shop.x - 30, shop.y - 290 + (#shop.upgrades + 1) * 20)
+        end
+    end
+
+    function drawMarket()
+        -- Marketplace
+        love.graphics.setColor(marketplace.color)
+        love.graphics.rectangle("fill", marketplace.x, marketplace.y, marketplace.width, marketplace.height)
+        love.graphics.setColor(0, 0, 0)
+        love.graphics.setFont(hudFont)
+        love.graphics.print("Market", marketplace.x + 10, marketplace.y + 40)
+
+        -- Customers
+        for i, customer in ipairs(customers) do
+            love.graphics.setColor(customer.color)
+            love.graphics.rectangle("fill", customer.x, customer.y, customer.width, customer.height)
+            love.graphics.setColor(0, 0, 0)
+            love.graphics.setFont(hudFont)
+            love.graphics.print(customer.needs .. " eggs", customer.x - 10, customer.y - 20)
+            love.graphics.print("Time Left: " .. math.floor(customerTimers[i]) .. " sec", customer.x - 10, customer.y - 35)
+        end
+    end
+
+    -- Input Handling
+    function love.keypressed(key)
+        key = string.lower(key)
+
+        -- Toggle full-screen mode with F11
+        if key == "f11" then
+            local isFullscreen = love.window.getFullscreen()
+            love.window.setFullscreen(not isFullscreen)
+        end
+
+        if cash.isCashRegisterOpen() then
+            cash.handleCashRegisterKeypress(key)
+            return -- Skip other key handling while cash register is open
+        end
+
+        if key == "escape" then
+            if gameState == "mainMenu" then
+                love.event.quit()
+            elseif gameState == "playing" then
+                gameState = "mainMenu"
+            elseif gameState == "paused" then
+                gameState = "mainMenu"
+            end
+        end
+
+        if gameState == "mainMenu" then
+            if key == "return" then
+                gameState = "tutorial"
+            end
+        elseif gameState == "tutorial" then
+            if key == "return" then
+                tutorialStep = tutorialStep + 1
+                if tutorialStep > #tutorialMessages then
+                    gameState = "playing"
+                end
+            end
+        elseif gameState == "paused" then
+            if key == "p" then
+                isPaused = false
                 gameState = "playing"
             end
-        end
-    elseif gameState == "paused" then
-        if key == "p" then
-            isPaused = false
-            gameState = "playing"
-        end
-    elseif gameState == "playing" then
-        if key == "p" then
-            isPaused = true
-            gameState = "paused"
-        end
+        elseif gameState == "playing" then
+            if key == "p" then
+                isPaused = true
+                gameState = "paused"
+            end
 
-        if isPaused then
-            return
-        end
-
-        -- All actions are mapped to the spacebar
-        if key == "space" then
-            handleSpacebarAction()
-        end
-
-        -- Shop menu navigation (optional)
-        if currentScreen == "farm" and isInPickupRange(player, shop) then
-            if key == "up" then
-                shop.selectedUpgrade = shop.selectedUpgrade - 1
-                if shop.selectedUpgrade < 1 then
-                    shop.selectedUpgrade = #shop.upgrades
-                end
-                return
-            elseif key == "down" then
-                shop.selectedUpgrade = shop.selectedUpgrade + 1
-                if shop.selectedUpgrade > #shop.upgrades then
-                    shop.selectedUpgrade = 1
-                end
+            if isPaused then
                 return
             end
-        end
-    end
-end
 
-function love.mousepressed(x, y, button)
+            -- All actions are mapped to the spacebar
+            if key == "space" then
+                handleSpacebarAction()
+            end
 
-    if cash.isCashRegisterOpen() then
-        cash.handleCashRegisterMouse(x, y)
-        return -- Skip other mouse input handling while cash register is open
-    end
-
-    if gameState == "playing" then
-        if currentScreen == "farm" and isInPickupRange(player, shop) then
-            if mouseOverUpgrade and button == 1 then
-                local selectedUpgrade = shop.upgrades[mouseOverUpgrade]
-                if money >= selectedUpgrade.cost then
-                    money = money - selectedUpgrade.cost
-                    selectedUpgrade.action()
-                    player.experience = player.experience + 20
-                    checkLevelUp()
-                else
-                    table.insert(messages, {text = "Not enough money for that upgrade.", timer = 2})
+            -- Shop menu navigation (optional)
+            if currentScreen == "farm" and isInPickupRange(player, shop) then
+                if key == "up" then
+                    shop.selectedUpgrade = shop.selectedUpgrade - 1
+                    if shop.selectedUpgrade < 1 then
+                        shop.selectedUpgrade = #shop.upgrades
+                    end
+                    return
+                elseif key == "down" then
+                    shop.selectedUpgrade = shop.selectedUpgrade + 1
+                    if shop.selectedUpgrade > #shop.upgrades then
+                        shop.selectedUpgrade = 1
+                    end
+                    return
                 end
             end
         end
     end
-end
 
--- Handle player actions with spacebar
-function handleSpacebarAction()
-    if cash.isCashRegisterOpen() then
-        return -- Skip other interactions if the cash register is open
+    function love.mousepressed(x, y, button)
+        if cash.isCashRegisterOpen() then
+            cash.handleCashRegisterMouse(x, y)
+            return -- Skip other mouse input handling while cash register is open
+        end
+
+        if gameState == "playing" then
+            if currentScreen == "farm" and isInPickupRange(player, shop) then
+                if mouseOverUpgrade and button == 1 then
+                    local selectedUpgrade = shop.upgrades[mouseOverUpgrade]
+                    if money >= selectedUpgrade.cost then
+                        money = money - selectedUpgrade.cost
+                        selectedUpgrade.action()
+                        table.insert(messages, {text = "Purchased: " .. selectedUpgrade.name, timer = 2})
+                    else
+                        table.insert(messages, {text = "Not enough money for that upgrade.", timer = 2})
+                    end
+                end
+            end
+        end
     end
 
-    if currentScreen == "market" then
-        -- First, check if near a customer and if conditions are met
-        for i, customer in ipairs(customers) do
-            if isInPickupRange(player, customer) and totalEggsInMarket >= customer.needs then
-                cash.openCashRegister(customer) -- Open the cash register
+    -- Handle player actions with spacebar
+    function handleSpacebarAction()
+        if cash.isCashRegisterOpen() then
+            return -- Skip other interactions if the cash register is open
+        end
+
+        if currentScreen == "market" then
+            -- First, check if near a customer and if conditions are met
+            for i, customer in ipairs(customers) do
+                if isInPickupRange(player, customer) and totalEggsInMarket >= customer.needs then
+                    cash.openCashRegister(customer) -- Open the cash register
+                    return
+                end
+            end
+
+            -- If no customer interaction, check for market storage
+            if isInPickupRange(player, marketplace) then
+                if player.carryingEggs > 0 then -- Only store if the player has eggs
+                    local transferableEggs = math.min(player.carryingEggs, marketCapacity - totalEggsInMarket)
+                    if transferableEggs > 0 then
+                        totalEggsInMarket = totalEggsInMarket + transferableEggs
+                        player.carryingEggs = player.carryingEggs - transferableEggs
+                        table.insert(messages, {text = "Successfully stored " .. transferableEggs .. " eggs in the market.", timer = 2})
+                    else
+                        table.insert(messages, {text = "Market storage is full!", timer = 2})
+                    end
+                else
+                    table.insert(messages, {text = "You have no eggs to store!", timer = 2})
+                end
                 return
             end
         end
 
-        -- If no customer interaction, check for market storage
-        if isInPickupRange(player, marketplace) then
-            if player.carryingEggs > 0 then -- Only store if the player has eggs
-                local transferableEggs = math.min(player.carryingEggs, marketCapacity - totalEggsInMarket)
-                if transferableEggs > 0 then
-                    totalEggsInMarket = totalEggsInMarket + transferableEggs
-                    player.carryingEggs = player.carryingEggs - transferableEggs
-                    table.insert(messages, {text = "Successfully stored " .. transferableEggs .. " eggs in the market.", timer = 2})
+        -- Collect eggs
+        for _, egg in ipairs(eggs) do
+            if not egg.collected and isInPickupRange(player, egg) then
+                if player.carryingEggs < player.maxCapacity then
+                    egg.collected = true
+                    if egg.isGolden then
+                        player.carryingEggs = player.carryingEggs + 1
+                        money = money + goldenEggPrice
+                        table.insert(messages, {text = "Collected a golden egg! +" .. goldenEggPrice .. " KSH", timer = 3})
+                    else
+                        player.carryingEggs = player.carryingEggs + 1
+                        table.insert(messages, {text = "Collected an egg!", timer = 2})
+                    end
+                    egg.chicken.hasEgg = false
+                    achievements.eggCollector.progress = achievements.eggCollector.progress + 1
                 else
-                    table.insert(messages, {text = "Market storage is full!", timer = 2})
+                    table.insert(messages, {text = "Your egg basket is full!", timer = 2})
                 end
-            else
-                table.insert(messages, {text = "You have no eggs to store!", timer = 2})
+                return
             end
-            return
         end
-    end
 
-    -- Collect eggs
-    for _, egg in ipairs(eggs) do
-        if not egg.collected and isInPickupRange(player, egg) then
-            if player.carryingEggs < player.maxCapacity then
-                egg.collected = true
-                if egg.isGolden then
-                    player.carryingEggs = player.carryingEggs + 1
-                    money = money + goldenEggPrice
-                    table.insert(messages, {text = "Collected a golden egg! +" .. goldenEggPrice .. " KSH", timer = 3})
-                else
-                    player.carryingEggs = player.carryingEggs + 1
+        -- Feed chickens with Special Feed
+        for _, chicken in ipairs(chickens) do
+            if isInPickupRange(player, chicken) and gameFeatures.inventorySystem.hasItem("Special Feed") then
+                chicken.goldenEggChance = chicken.goldenEggChance + 5 -- Increase chance of golden egg
+                gameFeatures.inventorySystem.removeItem("Special Feed")
+                table.insert(messages, {text = "Fed chicken with Special Feed!", timer = 2})
+                return
+            end
+        end
+
+        -- Feed chickens with regular feed
+        for _, chicken in ipairs(chickens) do
+            if isInPickupRange(player, chicken) and player.carryingFeed > 0 then
+                chicken.hunger = 100
+                chicken.isFed = true
+                player.carryingFeed = player.carryingFeed - 1
+                table.insert(messages, {text = "Fed chicken!", timer = 2})
+                return
+            end
+        end
+
+        -- Chase away predators
+        if predatorsActive then
+            for name, predator in pairs(predators) do
+                if predator.isActive and isInPickupRange(player, predator) then
+                    predator.isActive = false
+                    achievements.chickenGuardian.count = achievements.chickenGuardian.count + 1
+                    table.insert(messages, {text = "You chased away a predator!", timer = 2})
+                    return
                 end
-                egg.chicken.hasEgg = false
-                achievements.eggCollector.progress = achievements.eggCollector.progress + 1
-                player.experience = player.experience + 5
-                checkLevelUp()
-            else
-                table.insert(messages, {text = "Your egg basket is full!", timer = 2})
             end
-            return
+        end
+
+        -- Toggle screen if near button
+        if buttonHover then
+            currentScreen = currentScreen == "farm" and "market" or "farm"
+            player.x, player.y = 100, 500
         end
     end
 
-    -- Feed chickens with Special Feed
-    for _, chicken in ipairs(chickens) do
-        if isInPickupRange(player, chicken) and inventorySystem.hasItem("Special Feed") then
-            chicken.goldenEggChance = chicken.goldenEggChance + 5 -- Increase chance of golden egg
-            inventorySystem.removeItem("Special Feed")
-            table.insert(messages, {text = "Fed chicken with Special Feed!", timer = 2})
-            return
+    -- Check level completion based on money
+    function checkLevelCompletion()
+        if levelObjective() then
+            levelCompleted = true
+            table.insert(messages, {text = "Level " .. currentLevel .. " Completed!", timer = 5})
+            currentLevel = currentLevel + 1
+            loadLevel(currentLevel)
         end
     end
-
-    -- Feed chickens with regular feed
-    for _, chicken in ipairs(chickens) do
-        if isInPickupRange(player, chicken) and player.carryingFeed > 0 then
-            chicken.hunger = 100
-            chicken.isFed = true
-            player.carryingFeed = player.carryingFeed - 1
-            player.experience = player.experience + 2
-            checkLevelUp()
-            return
-        end
-    end
-
-    -- Chase away predators
-    for name, predator in pairs(predators) do
-        if predator.isActive and isInPickupRange(player, predator) then
-            predator.isActive = false
-            achievements.chickenGuardian.count = achievements.chickenGuardian.count + 1
-            table.insert(messages, {text = "You chased away a predator!", timer = 2})
-            player.experience = player.experience + 10
-            checkLevelUp()
-            return
-        end
-    end
-
-    -- Toggle screen if near button
-    if buttonHover then
-        currentScreen = currentScreen == "farm" and "market" or "farm"
-        player.x, player.y = 100, 500
-    end
-end
-
-function checkLevelUp()
-    if player.experience >= player.experienceToLevelUp then
-        player.level = player.level + 1
-        player.experience = player.experience - player.experienceToLevelUp
-        player.experienceToLevelUp = player.experienceToLevelUp + 50
-        table.insert(messages, {text = "Congratulations! You've reached level " .. player.level .. "!", timer = 3})
-        -- Unlock new abilities or upgrades here
-    end
-end

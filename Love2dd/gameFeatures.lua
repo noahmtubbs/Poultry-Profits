@@ -1,6 +1,5 @@
 -- gameFeatures.lua
 
--- Random Events Module
 local randomEvents = {}
 
 function randomEvents.init()
@@ -75,7 +74,7 @@ function randomEvents.endEvent()
         table.insert(messages, {text = "The festival has ended. Egg prices normalized.", timer = 5})
     elseif randomEvents.activeEvent == "marketCrash" then
         eggPrice = eggPrice + 10
-        table.insert(messages, {text = "Market has recovered. Egg prices normalized.", timer = 5})
+        table.insert(messages, {text = "The market has recovered. Egg prices normalized.", timer = 5})
     elseif randomEvents.activeEvent == "feedShortage" then
         for _, upgrade in ipairs(shop.upgrades) do
             if upgrade.name == "Buy Feed (+10)" then
@@ -95,7 +94,6 @@ function randomEvents.endEvent()
     randomEvents.duration = 0
 end
 
--- Advanced Upgrade System Module
 local upgradeSystem = {}
 
 function upgradeSystem.init()
@@ -108,6 +106,7 @@ function upgradeSystem.init()
     upgradeSystem.addUpgrade("Buy Chicken", 500, function()
         if #chickens < barn.capacity then
             local newChicken = Chicken:new(math.random(500, 900), math.random(100, 500))
+            newChicken.baseY = newChicken.y -- Set baseY for oscillation
             table.insert(chickens, newChicken)
             table.insert(messages, {text = "Bought a new chicken!", timer = 2})
         else
@@ -221,12 +220,8 @@ function inventorySystem.hasItem(itemName)
 end
 
 function inventorySystem.draw()
-    love.graphics.setFont(hudFont)
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.print("Inventory:", 20, 240)
-    for i, item in ipairs(player.inventory) do
-        love.graphics.print("- " .. item.name, 20, 240 + i * 20)
-    end
+    -- Inventory display removed as per instructions
+    -- You can leave this function empty or remove it
 end
 
 -- Return modules

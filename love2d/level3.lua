@@ -2,7 +2,7 @@
 
 return {
     chickens = {}, -- Chickens carry over from previous levels
-    initialMoney = 500,
+    initialMoney = 800,
     dayDuration = 40,
     nightDuration = 20,
     requiredCustomers = 999, -- Endless level

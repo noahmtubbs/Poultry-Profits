@@ -2,7 +2,7 @@
 
 return {
     chickens = {}, -- Chickens carry over from Level 1
-    initialMoney = 9999,
+    initialMoney = {},
     dayDuration = 40,
     nightDuration = 15,
     requiredCustomers = 2,

@@ -21,16 +21,14 @@ shop = {
     isOpen = false,
 }
 
--- Barn
---barn = {
---    x = 300,
---    y = 500,
---    width = 100,
---    height = 50,
---    level = 1,
---    capacity = 4,
---    upgradeCost = 500
---}
+-- Book (Game Instructions)
+book = {
+    x = 0,  -- Will be set in love.load()
+    y = 10,
+    width = 50,
+    height = 50,
+    isOpen = false,
+}
 
 player = {
     x = 100,
@@ -49,6 +47,16 @@ player = {
     hasFarmhand = false,
     hasGuardDog = false,
     inventory = {}
+}
+
+clocks = {
+    {x = 50, y = 0},
+    {x = 100, y = 50},
+    {x = 150, y = 50}
+}
+
+eggNeedsPositions = {
+    {x = 200, y = 0}
 }
 
 -- Base Resolution for scaling
@@ -407,6 +415,12 @@ function love.load()
     shopIconImage = love.graphics.newImage("assets/shop.png") -- Shop
     shopUIBackgroundImage = love.graphics.newImage("assets/okok.png") -- Shop UI
 
+    -- Load new images
+    eggCustomerWantImage = love.graphics.newImage("assets/eggcustomerwant.png")
+    timeImage = love.graphics.newImage("assets/time.png")
+    bookImage = love.graphics.newImage("assets/book.png")
+    instructionsBackgroundImage = love.graphics.newImage("assets/okok1.png")
+
     music = love.audio.newSource("assets/background_music.mp3", "stream")
     music:setLooping(true)  -- Make the music loop
     music:play()  -- Start playing the music
@@ -426,6 +440,24 @@ function love.load()
     dog.x = 50
     dog.y = baseHeight - dog.size - 10
     loadLevel(currentLevel)
+
+    -- Position the book at the top center (Modification 3)
+    book.x = 10
+    book.y = 250
+
+    -- 音量控制相关变量
+    volume = 1.0  -- 默认音量为最大值 1.0
+
+    -- 滑块位置和尺寸
+    sliderX = 200  -- 滑块的起始 X 坐标
+    sliderY = baseHeight / 2 + 150  -- 滑块的 Y 坐标
+    sliderWidth = 200  -- 滑块的宽度
+    sliderHeight = 10  -- 滑块的高度
+
+    -- 滑块圆钮的位置和半径
+    knobRadius = 10  -- 圆钮的半径
+    knobX = sliderX + volume * sliderWidth  -- 根据当前音量计算圆钮的 X 坐标
+
 end
 
 function initializeQuests()
@@ -733,8 +765,7 @@ function updateDog(dt)
                     dog.isActive = false
                 end
             else
-                -- 如果没有目标猎物，狗在固定区域巡逻
-                -- 例如，狗在左下角和右下角之间来回移动
+                -- If no target predator, dog patrols a fixed area
                 local patrolSpeed = 150
                 if not dog.patrolDirection then
                     dog.patrolDirection = "right"
@@ -753,8 +784,7 @@ function updateDog(dt)
                 end
             end
         else
-            -- 狗未激活时，保持在初始位置或执行其他逻辑
-            -- 例如，返回到左下角
+            -- Dog returns to initial position
             local targetX = 50
             local targetY = baseHeight - dog.size - 10
             local dx = targetX - dog.x
@@ -767,7 +797,6 @@ function updateDog(dt)
         end
     end
 end
-
 
 function updatePredators(dt)
     for name, predator in pairs(predators) do
@@ -827,7 +856,7 @@ function updatePredators(dt)
                     if player.hasGuardDog and name == "eagle" then
                         if math.random() < 0.5 then
                             predator.isActive = false
-                            table.insert(messages, {text = "Your guard dog scared away a eagle!", timer = 2})
+                            table.insert(messages, {text = "Your guard dog scared away an eagle!", timer = 2})
                         end
                     end
                 end
@@ -906,8 +935,8 @@ function love.draw()
             local targetTextboardHeight = baseHeight*20 / 50 
             local scaleTextboardX = targetTextboardWidth / textboardWidth
             local scaleTextboardY = targetTextboardHeight / textboardHeight
-            local textboardPosX = -105  -- 左侧边距
-            local textboardPosY = 16  -- 上侧边距
+            local textboardPosX = -105  -- Left margin
+            local textboardPosY = 16  -- Top margin
             love.graphics.draw(textboardImage, textboardPosX, textboardPosY, 0, scaleTextboardX, scaleTextboardY)
 
         else
@@ -950,8 +979,31 @@ function love.draw()
         local scaleYBtn = buttonSize / truckImage:getHeight()
         love.graphics.draw(truckImage, buttonX, buttonY, 0, scaleXBtn, scaleYBtn)
 
+        -- Draw Book icon
+        love.graphics.setColor(1, 1, 1)
+        local bookScaleX = book.width / bookImage:getWidth()
+        local bookScaleY = book.height / bookImage:getHeight()
+        love.graphics.draw(bookImage, book.x, book.y, 0, bookScaleX, bookScaleY)
+
+        -- Get mouse position adjusted for scaling
+        local mouseX, mouseY = love.mouse.getPosition()
+        mouseX = mouseX / scaleX
+        mouseY = mouseY / scaleY
+
+        -- Check if mouse is over the book (Modification 4)
+        if isPointInRect(mouseX, mouseY, book) then
+            -- Yellow glow
+            love.graphics.setColor(1, 1, 0, 0.3)
+            love.graphics.circle("fill", book.x + book.width / 2, book.y + book.height / 2, math.max(book.width, book.height) + 20)
+        end
+
         if isPaused then
             drawPauseMenu()
+        end
+
+        -- Draw Instructions if book is open
+        if book.isOpen then
+            drawInstructions()
         end
     end
 
@@ -964,7 +1016,39 @@ function love.draw()
     love.graphics.pop()
 end
 
+function drawInstructions()
+    -- Set the size to cover half the screen width and height
+    local bgWidth = baseWidth / 2
+    local bgHeight = baseHeight / 2
 
+    -- Set position to center of screen
+    local uiX = (baseWidth - bgWidth) / 2
+    local uiY = (baseHeight - bgHeight) / 2
+
+    -- Draw the background image
+    local scaleX = bgWidth / instructionsBackgroundImage:getWidth()
+    local scaleY = bgHeight / instructionsBackgroundImage:getHeight()
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(instructionsBackgroundImage, uiX-200, uiY-200, 0, scaleX*2, scaleY*2)
+
+    -- Draw game instructions text (Modification 1)
+    love.graphics.setColor(0, 0, 0)
+    love.graphics.setFont(hudFont)
+    local instructions = {
+        "Game Controls:",
+        "- Move: WASD or Arrow Keys",
+        "- Collect Eggs: Spacebar near eggs",
+        "- Feed Chickens: 'F' near chickens (if you have feed)",
+        "- Open Shop: Click on Shop icon in Market",
+        "- Sell Eggs: Spacebar near customers in Market",
+        "- Toggle Music: In Pause Menu",
+        "- Pause Game: 'P'",
+        "- Switch Screens: Approach the truck icon",
+    }
+    for i, line in ipairs(instructions) do
+        love.graphics.print(line, uiX + 70, uiY + (i - 1) * 25)
+    end
+end
 
 function drawPlayer()
     local scaleXPlayer = player.width / playerImage:getWidth()
@@ -1009,23 +1093,31 @@ function drawPauseMenu()
     love.graphics.rectangle("fill", 0, 0, baseWidth, baseHeight)
     love.graphics.setColor(1, 1, 1)
     love.graphics.setFont(titleFont)
-    love.graphics.printf("Game Paused", 0, baseHeight / 2 - 100, baseWidth, "center")
+    love.graphics.printf("Game Paused", 0, baseHeight / 2 - 200, baseWidth, "center")
     love.graphics.setFont(hudFont)
-    love.graphics.printf("Press 'P' to Resume", 0, baseHeight / 2 - 50, baseWidth, "center")
-    love.graphics.printf("Press 'Esc' to Main Menu", 0, baseHeight / 2, baseWidth, "center")
+    love.graphics.printf("Press 'P' to Resume", 0, baseHeight / 2 - 100, baseWidth, "center")
+    love.graphics.printf("Press 'Esc' to Main Menu", 0, baseHeight / 2 - 50, baseWidth, "center")
 
-  -- Add a "Toggle Music" button
-  local buttonX, buttonY, buttonWidth, buttonHeight = 200, baseHeight / 2 + 50, 200, 50
-  love.graphics.rectangle("line", buttonX, buttonY, buttonWidth, buttonHeight)
-  love.graphics.printf("Toggle Music", buttonX, buttonY + 15, buttonWidth, "center")
-  
-  -- Display current music state (On or Off)
-  local musicState = musicPlaying and "On" or "Off"
-  love.graphics.printf("Music: " .. musicState, 0, baseHeight / 2 + 120, baseWidth, "center")
+    -- Draw the "Toggle Music" button
+    local buttonX, buttonY, buttonWidth, buttonHeight = 200, baseHeight / 2 + 50, 200, 50
+    love.graphics.rectangle("line", buttonX, buttonY, buttonWidth, buttonHeight)
+    love.graphics.printf("Toggle Music", buttonX, buttonY + 15, buttonWidth, "center")
+
+    -- Display current music state
+    local musicState = musicPlaying and "On" or "Off"
+    love.graphics.printf("Music: " .. musicState, 0, baseHeight / 2 + 50 , baseWidth, "center")
+
+    -- Draw the volume slider
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.rectangle("fill", sliderX, sliderY, sliderWidth, sliderHeight) -- Slider track
+    love.graphics.setColor(0.5, 0.5, 0.5)
+    love.graphics.circle("fill", knobX, sliderY + sliderHeight / 2, knobRadius) -- Slider knob
+
+    -- Display current volume
+    love.graphics.printf("Volume: " .. math.floor(volume * 100) .. "%", 0, sliderY - 10, baseWidth, "center")
 end
 
 function drawFarm()
-
     -- Draw chickens
     for _, chicken in ipairs(chickens) do
         -- Set color based on chicken state
@@ -1097,7 +1189,23 @@ function drawFarm()
         love.graphics.draw(dogImage, dog.x, dog.y, 0, scaleX, scaleY)
     end
 
-    
+    -- Draw Book icon
+    love.graphics.setColor(1, 1, 1)
+    local bookScaleX = book.width / bookImage:getWidth()
+    local bookScaleY = book.height / bookImage:getHeight()
+    love.graphics.draw(bookImage, book.x, book.y, 0, bookScaleX, bookScaleY)
+
+    -- Get mouse position adjusted for scaling
+    local mouseX, mouseY = love.mouse.getPosition()
+    mouseX = mouseX / scaleX
+    mouseY = mouseY / scaleY
+
+    -- Check if mouse is over the book (Modification 4)
+    if isPointInRect(mouseX, mouseY, book) then
+        -- Yellow glow
+        love.graphics.setColor(1, 1, 0, 0.3)
+        love.graphics.circle("fill", book.x + book.width / 2, book.y + book.height / 2, math.max(book.width, book.height) + 20)
+    end
 end
 
 function drawPredator(predator, name, color)
@@ -1111,68 +1219,64 @@ function drawPredator(predator, name, color)
         image = snakeImage
     end
 
-        love.graphics.setColor(1, 1, 1, 1)
-        local scaleX = predator.size / image:getWidth()
-        local scaleY = predator.size / image:getHeight()
-        love.graphics.draw(image, predator.x, predator.y, 0, scaleX, scaleY)
+    love.graphics.setColor(1, 1, 1, 1)
+    local scaleX = predator.size / image:getWidth()
+    local scaleY = predator.size / image:getHeight()
+    love.graphics.draw(image, predator.x, predator.y, 0, scaleX, scaleY)
 end
 
 function drawShopUI()
     if shop.isOpen then
-        -- 获取屏幕尺寸的一半
-        local bgWidth = (baseWidth / 5)*2
-        local bgHeight = baseHeight / 1.8
+        -- Adjusted Shop UI size and position
+        local bgWidth = 200
+        local bgHeight = 200
 
-        -- 设置 Shop UI 背景板的位置，使其居中或根据需求调整
-        local uiX = ((baseWidth - bgWidth) /2) +100
-        local uiY = -80
-        -- 计算缩放比例以适应新的背景板尺寸
-        local scaleX = bgWidth*2 / shopUIBackgroundImage:getWidth()
-        local scaleY = bgHeight*2 / shopUIBackgroundImage:getHeight()
-        local scale = math.min(scaleX, scaleY) -- 保持比例不变
+        -- Center the Shop UI on the screen
+        local uiX = (baseWidth - bgWidth) / 2
+        local uiY = (baseHeight - bgHeight) / 2
 
-        -- 计算偏移量以居中背景板
-        local offsetX = uiX + (bgWidth - shopUIBackgroundImage:getWidth() * scale) / 2
-        local offsetY = uiY + (bgHeight - shopUIBackgroundImage:getHeight() * scale) / 2
+        -- Calculate scaling factors
+        local scaleX = bgWidth / shopUIBackgroundImage:getWidth()
+        local scaleY = bgHeight / shopUIBackgroundImage:getHeight()
+        local scale = math.min(scaleX, scaleY)
 
-        -- 绘制 Shop UI 背景板
-        love.graphics.setColor(1, 1, 1, 1) -- 设定为不透明
-        love.graphics.draw(shopUIBackgroundImage, offsetX, offsetY, 0, scale, scale)
+        -- Draw Shop UI background
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(shopUIBackgroundImage, uiX-50, uiY-200, 0, scale*2, scale*2.3)
 
-        -- 绘制升级选项的文字
+        -- Draw upgrade options
         love.graphics.setColor(0, 0, 0)
         love.graphics.setFont(hudFont)
         shop.upgradeRects = {}
 
+        local startY = uiY-130 -- Starting Y position for upgrades
+        local spacingY = 20     -- Spacing between upgrades
+
         for i, upgrade in ipairs(shop.upgrades) do
-            local upgradeX = uiX + 20
-            local upgradeY = uiY + 60 + i * 20  -- 增加每个升级选项的垂直间距，适应新背景板大小
+            local upgradeX = uiX -30
+            local upgradeY = startY + (i - 1) * spacingY
             local upgradeWidth = bgWidth - 40
-            local upgradeHeight = 30
+            local upgradeHeight = 25
 
             shop.upgradeRects[i] = {x = upgradeX, y = upgradeY, width = upgradeWidth, height = upgradeHeight}
 
-            -- 根据升级状态和鼠标悬停状态设置颜色
+            -- Set color based on upgrade state
             if upgrade.purchased and not upgrade.repeatable then
-                love.graphics.setColor(0.5, 0.5, 0.5) -- 已购买且不可重复的升级灰色
+                love.graphics.setColor(0.5, 0.5, 0.5)
             elseif mouseOverUpgrade == i then
-                love.graphics.setColor(0, 0.5, 1) -- 鼠标悬停时蓝色
+                love.graphics.setColor(0, 0.5, 1)
             elseif i == shop.selectedUpgrade then
-                love.graphics.setColor(1, 0, 0) -- 选中时红色
+                love.graphics.setColor(1, 0, 0)
             elseif money >= upgrade.cost then
-                love.graphics.setColor(0, 0, 0) -- 有钱时黑色
+                love.graphics.setColor(0, 0, 0)
             else
-                love.graphics.setColor(0.5, 0.5, 0.5) -- 没有钱时灰色
+                love.graphics.setColor(0.5, 0.5, 0.5)
             end
             love.graphics.print(upgrade.name .. ": " .. upgrade.cost .. " KSH", upgradeX, upgradeY)
         end
         love.graphics.setColor(0, 0, 0)
     end
 end
-
-
-
-
 
 function drawMarket()
     -- Calculate scaling factors to match the marketplace background size
@@ -1183,29 +1287,40 @@ function drawMarket()
     love.graphics.draw(marketplaceImage, marketplace.x, marketplace.y, 0, scaleXImg, scaleYImg)
 
     -- Draw Shop icon
-    love.graphics.setColor(1, 1, 1) -- 设置颜色为白色以正确显示图像
+    love.graphics.setColor(1, 1, 1)
     local shopScaleX = shop.width / shopIconImage:getWidth()
     local shopScaleY = shop.height / shopIconImage:getHeight()
     love.graphics.draw(shopIconImage, shop.x, shop.y, 0, shopScaleX, shopScaleY)
 
-    -- 获取当前鼠标位置
+    -- Draw Book icon
+    love.graphics.setColor(1, 1, 1)
+    local bookScaleX = book.width / bookImage:getWidth()
+    local bookScaleY = book.height / bookImage:getHeight()
+    love.graphics.draw(bookImage, book.x, book.y, 0, bookScaleX, bookScaleY)
+
+    -- Get mouse position adjusted for scaling
     local mouseX, mouseY = love.mouse.getPosition()
-    -- 调整鼠标坐标以匹配游戏世界坐标（考虑缩放）
     mouseX = mouseX / scaleX
     mouseY = mouseY / scaleY
 
-    -- 计算鼠标与 Shop 图标中心的距离
+    -- Yellow glow when mouse over book
+    if isPointInRect(mouseX, mouseY, book) then
+        love.graphics.setColor(1, 1, 0, 0.3)
+        love.graphics.circle("fill", book.x + book.width / 2, book.y + book.height / 2, math.max(book.width, book.height) + 20)
+    end
+
+    -- Calculate distance from mouse to Shop icon center
     local shopCenterX = shop.x + shop.width / 2
     local shopCenterY = shop.y + shop.height / 2
     local distance = math.sqrt((mouseX - shopCenterX)^2 + (mouseY - shopCenterY)^2)
 
-    -- 定义触发黄色光芒的距离阈值
-    local glowRadius = 50  -- 可根据需要调整
+    -- Define the glow radius
+    local glowRadius = 50
 
     if distance <= glowRadius then
-        -- 绘制半透明黄色光芒
-        love.graphics.setColor(1, 1, 0, 0.3) -- 半透明黄色
-        love.graphics.circle("fill", shopCenterX, shopCenterY, math.max(shop.width, shop.height)*0.5)
+        -- Draw semi-transparent yellow glow
+        love.graphics.setColor(1, 1, 0, 0.3)
+        love.graphics.circle("fill", shopCenterX, shopCenterY, math.max(shop.width, shop.height) * 0.5)
     end
 
     -- Draw Shop UI (only if shop.isOpen)
@@ -1214,7 +1329,7 @@ function drawMarket()
     -- Yellow glow around marketplace when in range
     if isInPickupRange(player, marketplace) then
         love.graphics.setColor(1, 1, 0, 0.3)
-        love.graphics.rectangle("line", marketplace.x - 10, marketplace.y - 10, marketplace.width + 20, marketplace.height + 20)
+        love.graphics.circle("fill", marketplace.x+130, marketplace.y+150, marketplace.width-110, marketplace.height-110)
     end
 
     -- Draw customers
@@ -1235,47 +1350,46 @@ function drawMarket()
             love.graphics.rectangle("fill", customer.x - 5, customer.y - 5, customer.width + 10, customer.height + 10)
         end
 
-        -- Draw customer needs and timer
-        love.graphics.setColor(0, 0, 0)
-        love.graphics.setFont(hudFont)
-
-        -- Prepare the two lines of text
-        local needsText = customer.needs .. " eggs"
-        local timerText = "T: " .. math.floor(customerTimers[i])
-
-        -- Calculate the width and height of each line
-        local needsTextWidth = love.graphics.getFont():getWidth(needsText)
-        local timerTextWidth = love.graphics.getFont():getWidth(timerText)
-        local textHeight = love.graphics.getFont():getHeight()
-
-        -- Calculate the total height for the box (stacking two lines)
-        local totalHeight = textHeight * 2 + 10  -- Extra padding between lines
-
-        -- Set the color for the text box (you can change this as needed)
-        love.graphics.setColor(1, 1, 1, 0.7)  -- Semi-transparent white box
-
-        -- Calculate the box width (use the wider of the two text lines)
-        local boxWidth = math.max(needsTextWidth, timerTextWidth) + 20  -- Make the box wide enough for the wider text
-
-        -- Adjust the y position of the box to be slightly above the customer
-        local boxY = customer.y - totalHeight - 10  -- Move the box up by the height of the text box plus some extra space
-
-        -- Draw the text box
-        love.graphics.rectangle("fill", customer.x - 10, boxY, boxWidth, totalHeight)
-
-        -- Calculate the x position for centering the text within the box
-        local boxX = customer.x - 10 + (boxWidth - needsTextWidth) / 2  -- Centering the "needs" text
-
-        -- Draw the first line of text (needs) centered in the box
-        love.graphics.setColor(0, 0, 0)  -- Reset text color to black
-        love.graphics.print(needsText, boxX, boxY + 5)  -- Small padding inside the box
-
-        -- Draw the second line of text (timer) centered in the box
-        local timerTextX = customer.x - 10 + (boxWidth - timerTextWidth) / 2  -- Centering the "timer" text
-        love.graphics.print(timerText, timerTextX, boxY + textHeight + 5)  -- Small padding inside the box
+        -- Draw customer needs and timer with images
+        local iconSize = 30  -- Size of the icons
+        local iconY = customer.y - iconSize - 20  -- Position above the customer
     end
-end
 
+    -- Draw egg need image and 'x N' at the top-left corner
+    if #customers > 0 then
+        local customer = customers[1]
+        local customerTimer = customerTimers[1]
+
+        -- Positions for the egg and clock images
+        local eggNeedX = 300
+        local eggNeedY = 10
+        local clockX = 100
+        local clockY = 0
+
+        -- Draw egg image and 'x N'
+        local iconSize = 30
+        local eggScale = iconSize / eggCustomerWantImage:getWidth()
+        love.graphics.draw(eggCustomerWantImage, eggNeedX, eggNeedY, 0, eggScale*1.2, eggScale*1.2)
+        love.graphics.setColor(1, 1, 1)
+        love.graphics.print(" x " .. customer.needs, eggNeedX + iconSize + 5, eggNeedY + 10)
+
+        -- Draw time images representing remaining time
+        local totalClocks = 3
+        local timePerClock = 40
+        local clocksToShow = math.ceil(customerTimer / timePerClock)
+
+        local timeX = clockX
+        local timeY = clockY
+
+        for n = 1, clocksToShow do
+            local shakeOffset = 0
+            if clocksToShow == 1 and customerTimer <= 40 then
+                shakeOffset = math.sin(love.timer.getTime() * 10) * 5
+            end
+            love.graphics.draw(timeImage, timeX + (n - 1) * (iconSize + 20) + shakeOffset, timeY, 0, eggScale*1.5, eggScale*1.5)
+        end
+    end 
+end
 
 function love.keypressed(key)
     key = string.lower(key)
@@ -1424,13 +1538,11 @@ function handleSpacebarAction()
         end
     end
 
-
     if buttonHover then
         currentScreen = currentScreen == "farm" and "market" or "farm"
         player.x, player.y = 100, 500
     end
 end
-
 
 function handleFeedAction()
     if currentScreen == "farm" then
@@ -1456,7 +1568,19 @@ function love.mousepressed(x, y, button)
         return
     end
 
+    -- 如果规则书已打开，点击任意地方都会关闭规则书
+    if book.isOpen then
+        book.isOpen = false
+        return
+    end
+
     if gameState == "playing" then
+        -- 检查是否点击在规则书图标上
+        if isPointInRect(x, y, book) and button == 1 then
+            book.isOpen = true
+            return
+        end
+
         if currentScreen == "market" then
             -- 检查是否点击在 shop 按钮上
             if isPointInRect(x, y, shop) and button == 1 then
@@ -1484,17 +1608,47 @@ function love.mousepressed(x, y, button)
         end
     end
 
-    -- 处理暂停时的鼠标点击
+    -- Handle mouse clicks when the game is paused
     if isPaused then
-        -- 定义“Toggle Music”按钮区域
+        -- Define the "Toggle Music" button area
         local toggleMusicButton = {x = 200, y = baseHeight / 2 + 50, width = 200, height = 50}
         if isPointInRect(x, y, toggleMusicButton) and button == 1 then
             toggleMusic()
             return
         end
+
+        -- Handle volume slider interaction
+        local sliderTrack = {x = sliderX, y = sliderY, width = sliderWidth, height = sliderHeight}
+        if button == 1 and x >= sliderTrack.x and x <= sliderTrack.x + sliderTrack.width and 
+           y >= sliderTrack.y - knobRadius and y <= sliderTrack.y + sliderTrack.height + knobRadius then
+            -- Update the slider knob position and volume
+            knobX = math.max(sliderTrack.x, math.min(x, sliderTrack.x + sliderTrack.width)) -- Clamp knob position
+            volume = (knobX - sliderTrack.x) / sliderTrack.width -- Calculate volume as a percentage
+            love.audio.setVolume(volume) -- Set global volume
+            return
+        end
     end
 end
 
+
+function love.mousemoved(x, y, dx, dy)
+    -- Adjust mouse coordinates based on scaling
+    x = x / scaleX
+    y = y / scaleY
+
+    if isPaused and love.mouse.isDown(1) then -- Check if paused and left mouse button is down
+        -- Define the slider area
+        local sliderTrack = {x = 200, y = baseHeight / 2 + 150, width = 200, height = 10}
+        
+        if x >= sliderTrack.x and x <= sliderTrack.x + sliderTrack.width and 
+           y >= sliderTrack.y - knobRadius and y <= sliderTrack.y + sliderTrack.height + knobRadius then
+            -- Update the knob position and volume dynamically
+            knobX = math.max(sliderTrack.x, math.min(x, sliderTrack.x + sliderTrack.width)) -- Clamp knob position
+            volume = (knobX - sliderTrack.x) / sliderTrack.width -- Calculate volume percentage
+            love.audio.setVolume(volume) -- Set global volume
+        end
+    end
+end
 
 function toggleMusic()
     if musicPlaying then
@@ -1509,4 +1663,3 @@ function isPointInRect(px, py, rect)
     return px >= rect.x and px <= rect.x + rect.width and
            py >= rect.y and py <= rect.y + rect.height
 end
-

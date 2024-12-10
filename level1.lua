@@ -7,9 +7,9 @@ return {
         {x = 400, y = 350},
         {x = 400, y = 400}
     },
-    initialMoney = 0,
+    initialMoney = 9999,
     dayDuration = 40,
     nightDuration = 10,
-    requiredCustomers = 5,
+    requiredCustomers = 1,
     predatorsActive = false
 }
